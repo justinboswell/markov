@@ -201,15 +201,13 @@ class Markov:
     	return self.generator(chunks)
 
 
-sys.argv = [sys.argv[0], 'd:\dev\KingJamesProgramming\kjv.txt']
-
 if __name__ == "__main__":
 	markov = Markov()	
 
 	parser = argparse.ArgumentParser()
 	# training args
-	parser.add_argument('inputs', nargs='+')
-	parser.add_argument('--paragraphs', action='store_true')
+	parser.add_argument('inputs', nargs='*')
+	parser.add_argument('--paragraphs', action='store_true', default=False)
 	parser.add_argument('--db', nargs='?', default="markov.db")
 
 	# generation args
@@ -240,7 +238,7 @@ if __name__ == "__main__":
 	if args.paragraph:
 		phrase = markov.generate(args.chunks, args.seed, args.rand, endPredicate=lambda t: t == '\n\n')
 		print phrase
-	else:
+	elif args.sentence:
 		sentenceBoundary = lambda t: t[-1] in ".!?"
 		phrase = markov.generate(args.chunks, args.seed, args.rand, sentenceBoundary, sentenceBoundary)
 		print phrase
