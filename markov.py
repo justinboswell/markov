@@ -7,6 +7,7 @@ import sys
 import argparse
 import time
 import glob
+import fileinput
 
 class Tokeniser:
     """Flexible tokeniser for the Markov chain.
@@ -98,7 +99,7 @@ class Markov:
     def train(self, tokenStream):
         prev = ()
         for token in tokenStream:
-            token = sys.intern(token)
+            #token = sys.intern(token)
             for pprev in [prev[i:] for i in range(len(prev) + 1)]:
                 if not pprev in self.data:
                     self.data[pprev] = [0, {}]
@@ -199,6 +200,9 @@ class Markov:
     	self.generator = gen
     	return self.generator(chunks)
 
+
+sys.argv = [sys.argv[0], 'd:\dev\KingJamesProgramming\kjv.txt']
+
 if __name__ == "__main__":
 	markov = Markov()	
 
@@ -222,10 +226,9 @@ if __name__ == "__main__":
 		corpus.extend(glob.glob(os.path.expanduser(path)))
 
 	def chars(paths):
-		with fileinput.input(paths) as fi:
-			for line in fi:
-				for char in line:
-					yield char
+		for line in fileinput.input(paths):
+			for char in line:
+				yield char
 
 	if len(corpus) > 0:
 		tokens = Tokeniser(stream=chars(corpus), noparagraphs=not args.paragraphs)
