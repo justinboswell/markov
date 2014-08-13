@@ -6,6 +6,7 @@ import os
 import sys
 import argparse
 import time
+import glob
 
 class Tokeniser:
     """Flexible tokeniser for the Markov chain.
@@ -21,7 +22,7 @@ class Tokeniser:
         self.halt = False
         return self
 
-    def __next__(self):
+    def next(self):
         while not self.halt:
             # Return a pending token, if we have one
             if self.tok:
@@ -144,7 +145,7 @@ class Markov:
     def __iter__(self):
         return self
 
-    def __next__(self):
+    def next(self):
         if self.prev == () or random.random() < self.p:
             next = self._choose(self.data[()])
         else:
@@ -203,7 +204,7 @@ if __name__ == "__main__":
 
 	parser = argparse.ArgumentParser()
 	# training args
-	parser.add_argument('inputs', action='append', nargs='+')
+	parser.add_argument('inputs', nargs='+')
 	parser.add_argument('--paragraphs', action='store_true')
 	parser.add_argument('--db', nargs='?', default="markov.db")
 
@@ -216,20 +217,24 @@ if __name__ == "__main__":
 
 	args = parser.parse_args()
 
+	corpus = []
+	for path in args.inputs:
+		corpus.extend(glob.glob(os.path.expanduser(path)))
+
 	def chars(paths):
 		with fileinput.input(paths) as fi:
 			for line in fi:
 				for char in line:
 					yield char
 
-	if args.inputs.length > 0:
-		tokens = Tokeniser(stream=chars(args.inputs), noparagraphs=not args.paragraphs)
+	if len(corpus) > 0:
+		tokens = Tokeniser(stream=chars(corpus), noparagraphs=not args.paragraphs)
 		markov.train(tokens)
-		markov.save(args['--db'])
+		markov.save(args.db)
 	else:
-		markov.load(args['--db'])
+		markov.load(args.db)
 
-	if args['--paragraph']:
+	if args.paragraph:
 		phrase = markov.generate(args.chunks, args.seed, args.rand, endPredicate=lambda t: t == '\n\n')
 		print phrase
 	else:
