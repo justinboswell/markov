@@ -202,22 +202,24 @@ class Markov:
 
 
 if __name__ == "__main__":
-	markov = Markov()	
-
 	parser = argparse.ArgumentParser()
 	# training args
 	parser.add_argument('inputs', nargs='*')
 	parser.add_argument('--paragraphs', action='store_true', default=False)
 	parser.add_argument('--db', nargs='?', default="markov.db")
+	parser.add_argument('--length', nargs='?', type=int, default=3)
 
 	# generation args
 	parser.add_argument('--sentence', action='store_true')
 	parser.add_argument('--paragraph', action='store_true')
 	parser.add_argument('--chunks', nargs='?', type=int, default=1)
+	parser.add_argument('--tokens', nargs='?', type=int, default=0)
 	parser.add_argument('--rand', nargs='?', type=int, default=1)
 	parser.add_argument('--seed', nargs='?', type=int, default=int(time.time()))
 
 	args = parser.parse_args()
+
+	markov = Markov(args.length)
 
 	corpus = []
 	for path in args.inputs:
@@ -237,8 +239,11 @@ if __name__ == "__main__":
 
 	if args.paragraph:
 		phrase = markov.generate(args.chunks, args.seed, args.rand, endPredicate=lambda t: t == '\n\n')
-		print phrase
+		print(phrase)
 	elif args.sentence:
 		sentenceBoundary = lambda t: t[-1] in ".!?"
 		phrase = markov.generate(args.chunks, args.seed, args.rand, sentenceBoundary, sentenceBoundary)
-		print phrase
+		print(phrase)
+	elif args.tokens:
+		phrase = markov.generate(args.tokens, args.seed, args.rand)
+		print(phrase)
