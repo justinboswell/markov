@@ -175,10 +175,10 @@ class Markov:
 
             idx -= freq
 
-    def generate(self, chunks=1, seed=None, randTokenChance=0, startPredicate=None, endPredicate=None):
+    def generate(self, chunks=1, seed=None, randTokenChance=0, startPredicate=None, endPredicate=None, prefix=()):
     	if not seed:
     		seed = int(time.time())
-    	self.reset(seed, randTokenChance, (), None)
+    	self.reset(seed, randTokenChance, prefix, None)
 
     	if not startPredicate:
     		startPredicate = lambda t: True
@@ -216,6 +216,7 @@ if __name__ == "__main__":
 	parser.add_argument('--tokens', nargs='?', type=int, default=0)
 	parser.add_argument('--rand', nargs='?', type=int, default=1)
 	parser.add_argument('--seed', nargs='?', type=int, default=int(time.time()))
+	parser.add_argument('--prefix', nargs='?', default="")
 
 	args = parser.parse_args()
 
@@ -233,17 +234,21 @@ if __name__ == "__main__":
 	if len(corpus) > 0:
 		tokens = Tokeniser(stream=chars(corpus), noparagraphs=not args.paragraphs)
 		markov.train(tokens)
+		print("Saving db to " + args.db + "...")
 		markov.save(args.db)
+		print("Saved db.")
 	else:
+		print("Loading db from " + args.db + "...")
 		markov.load(args.db)
+		print("Loaded db.")
 
 	if args.paragraph:
-		phrase = markov.generate(args.chunks, args.seed, args.rand, endPredicate=lambda t: t == '\n\n')
+		phrase = markov.generate(args.chunks, args.seed, args.rand, endPredicate=lambda t: t == '\n\n', prefix=tuple(args.prefix.split(' ')))
 		print(phrase)
 	elif args.sentence:
 		sentenceBoundary = lambda t: t[-1] in ".!?"
-		phrase = markov.generate(args.chunks, args.seed, args.rand, sentenceBoundary, sentenceBoundary)
+		phrase = markov.generate(args.chunks, args.seed, args.rand, sentenceBoundary, sentenceBoundary, prefix=tuple(args.prefix.split(' ')))
 		print(phrase)
 	elif args.tokens:
-		phrase = markov.generate(args.tokens, args.seed, args.rand)
+		phrase = markov.generate(args.tokens, args.seed, args.rand, prefix=tuple(args.prefix.split(' ')))
 		print(phrase)
