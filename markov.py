@@ -79,7 +79,7 @@ class Tokeniser:
 
             # Return the found token
             if out:
-                return out
+                return out.decode('latin-1')
 
         # If we're here, we got nothing but EOF.
         raise StopIteration
