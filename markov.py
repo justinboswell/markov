@@ -97,6 +97,7 @@ def _newTokenDict():
 
 class Markov:
     CLAUSE_ENDS = [',', '.', ';', ':', '!', '?']
+    SENTENCE_ENDS = ['!', '?', '.']
 
     def __init__(self, order=3):
         self.order = order
@@ -183,7 +184,7 @@ class Markov:
         if len(self.prev) > 0 and self.prev[0] == '':
             self.prev = []
         # accumulate a sentence, clearing it when it ends
-        if next not in ".!?":
+        if next not in self.SENTENCE_ENDS:
             self.prev.append(next)
         else:
             self.prev = []
@@ -234,10 +235,22 @@ class Markov:
         def gen(n):
             while (n > 0):
                 token = next(self)
-                out.append(token)
-                if endPredicate(token):
+                # append punctuation to the previous token
+                if not token.isalnum():
+                    out[len(out)-1] += token
+                else:
+                    out.append(token)
+                if not token or endPredicate(token):
                     n -= 1
-            return (' '.join(out)).replace(' .', '.')
+            result = ' '.join(out)
+            # capitalize first letter
+            result = result.capitalize()
+            # fix end
+            if not result[len(result)-1] in Markov.SENTENCE_ENDS:
+                if result[len(result)-1] in Markov.CLAUSE_ENDS:
+                    result = result[0:len(result) - 1]
+                result += random.choice(['!', '.'])
+            return result
 
         self.generator = gen
         return self.generator(chunks)
@@ -291,8 +304,8 @@ if __name__ == "__main__":
     elif args.sentence:
         sentenceBoundary = lambda t: t[-1] in ".!?"
         phrase = markov.generate(args.chunks, args.seed, args.rand, 
-                                 startPredicate=lambda t: t not in "!?.",
-                                 endPredicate=lambda t: t in "!?.", 
+                                 startPredicate=lambda t: t not in Markov.SENTENCE_ENDS,
+                                 endPredicate=lambda t: t in Markov.SENTENCE_ENDS, 
                                  prefix=tuple(args.prefix.split(' ')))
         print(phrase)
     elif args.tokens:
