@@ -265,6 +265,7 @@ if __name__ == "__main__":
     parser.add_argument('--paragraphs', action='store_true', default=False)
     parser.add_argument('--db', nargs='?', default="markov.db")
     parser.add_argument('--order', nargs='?', type=int, default=3)
+    parser.add_argument('--reset', action='store_true', default=False)
 
     # generation args
     parser.add_argument('--sentence', action='store_true')
@@ -287,16 +288,17 @@ if __name__ == "__main__":
             for char in line:
                 yield char
 
+    if not args.reset and os.path.isfile(args.db):
+        print("Loading db from " + args.db + "...")
+        markov.load(args.db)
+        print("Loaded db.")
+
     if len(corpus) > 0:
         tokens = Tokeniser(stream=chars(corpus), noparagraphs=not args.paragraphs)
         markov.train(tokens)
         print("Saving db to " + args.db + "...")
         markov.save(args.db)
         print("Saved db.")
-    else:
-        print("Loading db from " + args.db + "...")
-        markov.load(args.db)
-        print("Loaded db.")
 
     if args.paragraph:
         phrase = markov.generate(args.chunks, args.seed, 
