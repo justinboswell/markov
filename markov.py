@@ -1,13 +1,17 @@
 #!/usr/bin/env python
 
 import random
-import pickle
 import os
 import sys
 import argparse
 import time
 import glob
 import fileinput
+try: # cPickle is faster than pickle
+    import cPickle as pickle
+except ImportError:
+    import pickle
+from collections import defaultdict
 
 class Tokeniser:
     """Flexible tokeniser for the Markov chain.
@@ -15,7 +19,7 @@ class Tokeniser:
 
     def __init__(self, stream=None, noparagraphs=False):
         self.stream = sys.stdin if stream is None else stream
-        self.noparagraphs = noparagraphs
+        self.orderoparagraphs = noparagraphs
 
     def __iter__(self):
         self.buffer = ''
@@ -45,20 +49,20 @@ class Tokeniser:
             # Determine if we have a new token
             out = None
             if self.buffer:
-                cout = False
+                punctuation = not next_char.isalnum() and not next_char.isspace()
 
                 if self.buffer == '\n' and next_char == '\n':
                     # Paragraph break
-                    if not self.noparagraphs:
+                    if not self.orderoparagraphs:
                         out = self.buffer + next_char
                         next_char = ''
 
-                elif not self.buffer.isspace() and next_char.isspace():
+                elif not self.buffer.isspace() and (next_char.isspace() or punctuation):
                     # A word
                     out = self.buffer
 
                 # If the next_char is a token, save it
-                if cout:
+                if punctuation:
                     self.tok = next_char
                     next_char = ''
 
@@ -82,46 +86,75 @@ class Tokeniser:
 ###############################################################################
 # Markov chain table
 ###############################################################################
-class Markov:
-    CLAUSE_ENDS = [',', '.', ';', ':']
+def _newDefaultProb():
+    return 1.0
 
-    # n = prefix length
-    def __init__(self, n=3):
-        self.n = n
+def _newProbDict():
+    return defaultdict(_newDefaultProb)
+
+def _newTokenDict():
+    return defaultdict(_newProbDict)
+
+class Markov:
+    CLAUSE_ENDS = [',', '.', ';', ':', '!', '?']
+
+    def __init__(self, order=3):
+        self.order = order
         self.p = 0
         self.seed = None
-        self.data = {}
-        self.cln = n
-
-    def set_cln(self, cln):
-        self.cln = cln if cln is not None and cln <= self.n else self.n
+        self.prev = ('',)
+        self.data = _newTokenDict()
 
     def train(self, tokenStream):
-        prev = ()
+        # compile tokens into sentences
+        print("Compiling sentences...")
+        sentences = []
+        sentence = []
         for token in tokenStream:
-            #token = sys.intern(token)
-            for pprev in [prev[i:] for i in range(len(prev) + 1)]:
-                if not pprev in self.data:
-                    self.data[pprev] = [0, {}]
+            sentence.append(token)
+            if token in self.CLAUSE_ENDS: # if token is the end of a sentence
+                sentences.append(sentence)
+                sentence = []
+        print("Compiled {count:d} sentences.".format(count=len(sentences)));
 
-                if not token in self.data[pprev][1]:
-                    self.data[pprev][1][token] = 0
+        # create a chain database from the sentences
+        print("Building markov chains...")
+        self.data[('',)][''] = 0.0 # default
+        for words in sentences:
+            if (len(words) == 0):
+                continue
 
-                self.data[pprev][1][token] += 1
-                self.data[pprev][0] += 1
+            self.data[('',)][words[0]] += 1 # first word in sentence
 
-            prev += (token,)
-            if len(prev) > self.n:
-                prev = prev[1:]
+            for order in range(1, self.order + 1):
+                for idx in range(len(words) - 1):
+                    if (idx + order) >= len(words):
+                        continue
+                    word = tuple(words[idx:idx + order])
+                    self.data[word][words[idx + order]] += 1
+                # record last word as an end (skip the end punctuation)
+                self.data[tuple(words[len(words) - order - 1:len(words) - 1])][''] += 1
+
+        # normalize word counts -> probabilities (0 -> 1)
+        print("Normalizing data...")
+        for key in self.data:
+            total = 0
+            for chain in self.data[key]:
+                total += self.data[key][chain]
+            if total > 0:
+                for chain in self.data[key]:
+                    self.data[key][chain] /= total
+        print("Done.")
+
 
     def load(self, filename):
         with open(os.path.expanduser(filename), "rb") as f:
             try:
                 n, self.data = pickle.load(f)
 
-                if self.n > n:
-                    print("warning: changing n value to", n)
-                    self.n = n
+                if self.order > n:
+                    print("warning: changing order to", n)
+                    self.order = n
                 return True
             except:
                 print("Loading data file failed!")
@@ -130,125 +163,128 @@ class Markov:
     def save(self, filename):
         try:
             with open(os.path.expanduser(filename), "wb") as f:
-                pickle.dump((self.n, self.data), f)
+                pickle.dump((self.order, self.data), f)
             return True
         except:
             print("Could not save to file.")
             return False
 
-    def reset(self, seed, prob, prev, cln):
+    def reset(self, seed, prob, prev):
         self.seed = seed
         self.p = prob
         self.prev = prev
-        self.set_cln(cln)
         random.seed(seed)
 
     def __iter__(self):
         return self
 
     def next(self):
-        if self.prev == () or random.random() < self.p:
-            next = self._choose(self.data[()])
-        else:
-            try:
-                next = self._choose(self.data[self.prev])
-            except:
-                self.prev = ()
-                next = self._choose(self.data[self.prev])
+        self.prev = self._nextToken(self.prev)
+        return self.prev
 
-        self.prev += (next,)
-        if len(self.prev) > self.n:
-            self.prev = self.prev[1:]
+    def _nextToken(self, prev):
+        prev = tuple(prev)
 
-        if next[-1] in self.CLAUSE_ENDS:
-            self.prev = self.prev[-self.cln:]
+        if prev != ('',):
+            while prev not in self.data:
+                prev = prev[1:]
+                if not prev:
+                    return ''
+        candidates = self.data[prev]
+        sample = random.random()
+        maxProb = 0.0
+        bestToken = ""
+        for candidate in candidates:
+            prob = candidates[candidate]
+            if prob > maxProb:
+                maxProb = prob
+                bestToken = candidate
+            if sample > prob:
+                sample -= prob
+            else:
+                return candidate
+        # if we get here, we just make the best of it and take the best token found
+        return bestToken
 
-        return next
-
-    def _choose(self, freqdict):
-        total, choices = freqdict
-        idx = random.randrange(total)
-
-        for token, freq in choices.items():
-            if idx <= freq:
-                return token
-
-            idx -= freq
-
+    # generate chunks where a chunk is defined as a series of tokens generated between
+    # startPredicate and endPredicate returning true
     def generate(self, chunks=1, seed=None, randTokenChance=0, startPredicate=None, endPredicate=None, prefix=()):
-    	if not seed:
-    		seed = int(time.time())
-    	self.reset(seed, randTokenChance, prefix, None)
+        if not seed:
+            seed = int(time.time())
+        prefix = list(prefix) if prefix else []
+        self.reset(seed, randTokenChance, prefix)
 
-    	if not startPredicate:
-    		startPredicate = lambda t: True
-    	if not endPredicate:
-    		endPredicate = lambda t: True
+        if not startPredicate:
+            startPredicate = lambda t: True
+        if not endPredicate:
+            endPredicate = lambda t: True
 
-    	while not startPredicate(next(self)):
-    		pass
+        while not startPredicate(next(self)):
+            pass
 
-    	def gen(n):
-    		out = []
-    		while (n > 0):
-    			token = next(self)
-    			out.append(token)
-    			if endPredicate(token):
-    				n -= 1
-    		return ' '.join(out)
+        def gen(n):
+            out = []
+            while (n > 0):
+                token = next(self)
+                out.append(token)
+                if endPredicate(token):
+                    n -= 1
+            return ' '.join(out)
 
-    	self.generator = gen
-    	return self.generator(chunks)
+        self.generator = gen
+        return self.generator(chunks)
 
+sys.argv = [sys.argv[0], '--sentence', 'd:\dev\KingJamesProgramming\kjv.txt']
+#sys.argv = [sys.argv[0], '--sentence']
 
 if __name__ == "__main__":
-	parser = argparse.ArgumentParser()
-	# training args
-	parser.add_argument('inputs', nargs='*')
-	parser.add_argument('--paragraphs', action='store_true', default=False)
-	parser.add_argument('--db', nargs='?', default="markov.db")
-	parser.add_argument('--length', nargs='?', type=int, default=3)
+    parser = argparse.ArgumentParser()
+    # training args
+    parser.add_argument('inputs', nargs='*')
+    parser.add_argument('--paragraphs', action='store_true', default=False)
+    parser.add_argument('--db', nargs='?', default="markov.db")
+    parser.add_argument('--order', nargs='?', type=int, default=3)
 
-	# generation args
-	parser.add_argument('--sentence', action='store_true')
-	parser.add_argument('--paragraph', action='store_true')
-	parser.add_argument('--chunks', nargs='?', type=int, default=1)
-	parser.add_argument('--tokens', nargs='?', type=int, default=0)
-	parser.add_argument('--rand', nargs='?', type=int, default=1)
-	parser.add_argument('--seed', nargs='?', type=int, default=int(time.time()))
-	parser.add_argument('--prefix', nargs='?', default="")
+    # generation args
+    parser.add_argument('--sentence', action='store_true')
+    parser.add_argument('--paragraph', action='store_true')
+    parser.add_argument('--chunks', nargs='?', type=int, default=1)
+    parser.add_argument('--tokens', nargs='?', type=int, default=0)
+    parser.add_argument('--rand', nargs='?', type=int, default=1)
+    parser.add_argument('--seed', nargs='?', type=int, default=int(time.time()))
+    parser.add_argument('--prefix', nargs='?', default="")
 
-	args = parser.parse_args()
+    args = parser.parse_args()
 
-	markov = Markov(args.length)
+    markov = Markov(args.order)
 
-	corpus = []
-	for path in args.inputs:
-		corpus.extend(glob.glob(os.path.expanduser(path)))
+    corpus = []
+    for path in args.inputs:
+        corpus.extend(glob.glob(os.path.expanduser(path)))
 
-	def chars(paths):
-		for line in fileinput.input(paths):
-			for char in line:
-				yield char
+    def chars(paths):
+        for line in fileinput.input(paths, openhook=fileinput.hook_encoded("UTF-8")):
+            for char in line:
+                yield char
 
-	if len(corpus) > 0:
-		tokens = Tokeniser(stream=chars(corpus), noparagraphs=not args.paragraphs)
-		markov.train(tokens)
-		print("Saving db to " + args.db + "...")
-		markov.save(args.db)
-		print("Saved db.")
-	else:
-		print("Loading db from " + args.db + "...")
-		markov.load(args.db)
-		print("Loaded db.")
+    if len(corpus) > 0:
+        tokens = Tokeniser(stream=chars(corpus), noparagraphs=not args.paragraphs)
+        markov.train(tokens)
+        print("Saving db to " + args.db + "...")
+        markov.save(args.db)
+        print("Saved db.")
+    else:
+        print("Loading db from " + args.db + "...")
+        markov.load(args.db)
+        print("Loaded db.")
 
-	if args.paragraph:
-		phrase = markov.generate(args.chunks, args.seed, args.rand, endPredicate=lambda t: t == '\n\n', prefix=tuple(args.prefix.split(' ')))
-		print(phrase)
-	elif args.sentence:
-		sentenceBoundary = lambda t: t[-1] in ".!?"
-		phrase = markov.generate(args.chunks, args.seed, args.rand, sentenceBoundary, sentenceBoundary, prefix=tuple(args.prefix.split(' ')))
-		print(phrase)
-	elif args.tokens:
-		phrase = markov.generate(args.tokens, args.seed, args.rand, prefix=tuple(args.prefix.split(' ')))
-		print(phrase)
+    if args.paragraph:
+        phrase = markov.generate(args.chunks, args.seed, args.rand, endPredicate=lambda t: t == '\n\n', prefix=tuple(args.prefix.split(' ')))
+        print(phrase)
+    elif args.sentence:
+        sentenceBoundary = lambda t: t[-1] in ".!?"
+        phrase = markov.generate(args.chunks, args.seed, args.rand, sentenceBoundary, sentenceBoundary, prefix=tuple(args.prefix.split(' ')))
+        print(phrase)
+    elif args.tokens:
+        phrase = markov.generate(args.tokens, args.seed, args.rand, prefix=tuple(args.prefix.split(' ')))
+        print(phrase)
