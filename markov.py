@@ -34,7 +34,7 @@ class Tokeniser:
             if self.tok:
                 out = self.tok
                 self.tok = ''
-                return out
+                return re.sub(r'[^\x00-\x7F]+', '', out)
 
             # Read the next character. If EOF, return what we have in the
             # buffer as the final token. Set a flag so we know to terminate
@@ -79,7 +79,7 @@ class Tokeniser:
 
             # Return the found token
             if out:
-                return out.decode('latin-1')
+                return re.sub(r'[^\x00-\x7F]+', '', out)
 
         # If we're here, we got nothing but EOF.
         raise StopIteration
