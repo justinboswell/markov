@@ -179,8 +179,15 @@ class Markov:
         return self
 
     def next(self):
-        self.prev = self._nextToken(self.prev)
-        return self.prev
+        next = self._nextToken(self.prev)
+        if len(self.prev) > 0 and self.prev[0] == '':
+            self.prev = []
+        # accumulate a sentence, clearing it when it ends
+        if next not in ".!?":
+            self.prev.append(next)
+        else:
+            self.prev = []
+        return next
 
     def _nextToken(self, prev):
         prev = tuple(prev)
@@ -219,23 +226,21 @@ class Markov:
         if not endPredicate:
             endPredicate = lambda t: True
 
-        while not startPredicate(next(self)):
-            pass
+        token = next(self)
+        while not startPredicate(token):
+            token = next(self)
 
+        out = [token]
         def gen(n):
-            out = []
             while (n > 0):
                 token = next(self)
                 out.append(token)
                 if endPredicate(token):
                     n -= 1
-            return ' '.join(out)
+            return (' '.join(out)).replace(' .', '.')
 
         self.generator = gen
         return self.generator(chunks)
-
-sys.argv = [sys.argv[0], '--sentence', 'd:\dev\KingJamesProgramming\kjv.txt']
-#sys.argv = [sys.argv[0], '--sentence']
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -279,11 +284,16 @@ if __name__ == "__main__":
         print("Loaded db.")
 
     if args.paragraph:
-        phrase = markov.generate(args.chunks, args.seed, args.rand, endPredicate=lambda t: t == '\n\n', prefix=tuple(args.prefix.split(' ')))
+        phrase = markov.generate(args.chunks, args.seed, args.rand, 
+                                 endPredicate=lambda t: t == '\n\n', 
+                                 prefix=tuple(args.prefix.split(' ')))
         print(phrase)
     elif args.sentence:
         sentenceBoundary = lambda t: t[-1] in ".!?"
-        phrase = markov.generate(args.chunks, args.seed, args.rand, sentenceBoundary, sentenceBoundary, prefix=tuple(args.prefix.split(' ')))
+        phrase = markov.generate(args.chunks, args.seed, args.rand, 
+                                 startPredicate=lambda t: t not in "!?.",
+                                 endPredicate=lambda t: t in "!?.", 
+                                 prefix=tuple(args.prefix.split(' ')))
         print(phrase)
     elif args.tokens:
         phrase = markov.generate(args.tokens, args.seed, args.rand, prefix=tuple(args.prefix.split(' ')))
